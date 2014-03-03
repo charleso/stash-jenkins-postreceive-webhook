@@ -73,7 +73,7 @@ public class JenkinsResourceTest {
    * Validate that if a null JenkinsBase is provided, a BAD_REQUEST is returned.
    */
   @Test
-  public void shouldFailWhenJenkinsBaseNullProvidedToTest() {
+  public void shouldFailWhenJenkinsBaseNullProvidedToTest() throws Exception {
     Map<String, Object> result = 
         resource.test(repository, JENKINS_BASE, null, IGNORE_CERTS);
     assertFalse((Boolean) result.get("successful"));
@@ -84,7 +84,7 @@ public class JenkinsResourceTest {
    * returned.
    */
   @Test
-  public void shouldFailWhenCloneUrlNullProvidedToTest() {
+  public void shouldFailWhenCloneUrlNullProvidedToTest() throws Exception {
     Map<String, Object> result = 
         resource.test(repository, JENKINS_BASE, null, IGNORE_CERTS);
     assertFalse((Boolean) result.get("successful"));

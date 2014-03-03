@@ -1,6 +1,6 @@
 package com.nerdwin15.stash.webhook.service;
 
-import org.apache.http.client.HttpClient;
+import org.apache.http.impl.nio.client.CloseableHttpAsyncClient;
 
 /**
  * Defines a generator that will create a HttpClient used to communicate with
@@ -14,9 +14,7 @@ public interface HttpClientFactory {
    * Generate a HttpClient to communicate with Jenkins.
    * @param usingSsl True if using ssl.
    * @param trustAllCerts True if all certs should be trusted.
-   * @return An HttpClient configured to communicate with Jenkins.
-   * @throws Exception Any exception, but shouldn't happen.
+   * @return An HttpAsyncClient configured to communicate with Jenkins.
    */
-  HttpClient getHttpClient(Boolean usingSsl, Boolean trustAllCerts)
-      throws Exception;
+  CloseableHttpAsyncClient getHttpClient(boolean usingSsl, boolean trustAllCerts);
 }

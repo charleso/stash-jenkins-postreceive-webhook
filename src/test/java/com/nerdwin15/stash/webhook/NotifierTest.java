@@ -1,26 +1,25 @@
 package com.nerdwin15.stash.webhook;
 
-import static org.junit.Assert.assertEquals;
-import static org.mockito.Matchers.any;
-import static org.mockito.Matchers.anyBoolean;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
-
-import org.apache.http.client.HttpClient;
-import org.apache.http.client.methods.HttpGet;
-import org.apache.http.conn.ClientConnectionManager;
-import org.junit.Before;
-import org.junit.Test;
-import org.mockito.ArgumentCaptor;
-
 import com.atlassian.stash.hook.repository.RepositoryHook;
 import com.atlassian.stash.repository.Repository;
 import com.atlassian.stash.setting.Settings;
-import com.nerdwin15.stash.webhook.service.HttpClientFactory;
+import com.nerdwin15.stash.webhook.service.ConcreteHttpClientFactory;
 import com.nerdwin15.stash.webhook.service.SettingsService;
+import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpHandler;
+import com.sun.net.httpserver.HttpServer;
+import org.junit.After;
+import org.junit.Before;
+import org.junit.Test;
+
+import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.util.concurrent.TimeUnit;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNull;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 /**
  * Test for the Notifier class
@@ -30,46 +29,59 @@ import com.nerdwin15.stash.webhook.service.SettingsService;
  */
 public class NotifierTest {
 
-  private static final String JENKINS_BASE_URL = "http://localhost.jenkins";
+  private static final String JENKINS_BASE_URL2 = "http://localhost";
   private static final String CLONE_URL =
       "http://some.stash.com/scm/foo/bar.git";
 
-  private HttpClientFactory httpClientFactory;
-  private HttpClient httpClient;
-  private ClientConnectionManager connectionManager;
+
   private Repository repo;
   private RepositoryHook repoHook;
   private Settings settings;
   private SettingsService settingsService;
   private Notifier notifier;
+  private HttpServer httpServer;
+  private String outgoingUrl;
+  private String response;
+  private String url;
 
   /**
    * Setup tasks
    */
   @Before
   public void setup() throws Exception {
-    httpClientFactory = mock(HttpClientFactory.class);
     settingsService = mock(SettingsService.class);
-    notifier = new Notifier(settingsService, httpClientFactory);
+    notifier = new Notifier(settingsService, new ConcreteHttpClientFactory());
 
     repo = mock(Repository.class);
     repoHook = mock(RepositoryHook.class);
     settings = mock(Settings.class);
-    httpClient = mock(HttpClient.class);
-    connectionManager = mock(ClientConnectionManager.class);
 
     when(repoHook.isEnabled()).thenReturn(true);
     when(settingsService.getRepositoryHook(repo)).thenReturn(repoHook);
     when(settingsService.getSettings(repo)).thenReturn(settings);
-    when(httpClientFactory
-        .getHttpClient(any(Boolean.class), any(Boolean.class)))
-        .thenReturn(httpClient);
-    when(httpClient.getConnectionManager()).thenReturn(connectionManager);
 
-    when(settings.getString(Notifier.JENKINS_BASE))
-      .thenReturn(JENKINS_BASE_URL);
+    httpServer = HttpServer.create(new InetSocketAddress(0), 0);
+    outgoingUrl = JENKINS_BASE_URL2 + ":" + httpServer.getAddress().getPort();
+    when(settings.getString(Notifier.JENKINS_BASE)).thenReturn(outgoingUrl);
     when(settings.getString(Notifier.CLONE_URL)).thenReturn(CLONE_URL);
     when(settings.getBoolean(Notifier.IGNORE_CERTS, false)).thenReturn(false);
+
+    httpServer.createContext("/").setHandler(new HttpHandler() {
+      @Override
+      public void handle(HttpExchange httpExchange) throws IOException {
+
+        url = httpExchange.getRequestURI().toString();
+        httpExchange.sendResponseHeaders(200, 0);
+        httpExchange.getResponseBody().write(response.getBytes());
+        httpExchange.close();
+      }
+    });
+    httpServer.start();
+  }
+
+  @After
+  public void tearDown() {
+    httpServer.stop(0);
   }
 
   /**
@@ -79,9 +91,7 @@ public class NotifierTest {
   @Test
   public void shouldReturnEarlyWhenHookIsNull() throws Exception {
     when(settingsService.getRepositoryHook(repo)).thenReturn(null);
-    notifier.notify(repo);
-    verify(httpClientFactory, never())
-      .getHttpClient(anyBoolean(), anyBoolean());
+    assertNull(notifier.notify(repo));
   }
 
   /**
@@ -91,9 +101,7 @@ public class NotifierTest {
   @Test
   public void shouldReturnEarlyWhenHookIsNotEnabled() throws Exception {
     when(repoHook.isEnabled()).thenReturn(false);
-    notifier.notify(repo);
-    verify(httpClientFactory, never())
-        .getHttpClient(anyBoolean(), anyBoolean());
+    assertNull(notifier.notify(repo));
   }
 
   /**
@@ -103,9 +111,7 @@ public class NotifierTest {
   @Test
   public void shouldReturnEarlyWhenSettingsAreNull() throws Exception {
     when(settingsService.getSettings(repo)).thenReturn(null);
-    notifier.notify(repo);
-    verify(httpClientFactory, never())
-      .getHttpClient(anyBoolean(), anyBoolean());
+    assertNull(notifier.notify(repo));
   }
 
   /**
@@ -114,63 +120,10 @@ public class NotifierTest {
    */
   @Test
   public void shouldCallTheCorrectUrlWithoutSsl() throws Exception {
-    notifier.notify(repo);
-
-    ArgumentCaptor<HttpGet> captor = ArgumentCaptor.forClass(HttpGet.class);
-
-    verify(httpClientFactory, times(1)).getHttpClient(false, false);
-    verify(httpClient, times(1)).execute(captor.capture());
-    verify(connectionManager, times(1)).shutdown();
-
-    assertEquals("http://localhost.jenkins/git/notifyCommit?" 
-        + "url=http%3A%2F%2Fsome.stash.com%2Fscm%2Ffoo%2Fbar.git",
-        captor.getValue().getURI().toString());
-  }
-
-  /**
-   * Validates the path is correct when using a SSL path
-   * @throws Exception
-   */
-  @Test
-  public void shouldCallTheCorrectUrlWithSsl() throws Exception {
-    when(settings.getString(Notifier.JENKINS_BASE))
-      .thenReturn(JENKINS_BASE_URL.replace("http", "https"));
-
-    notifier.notify(repo);
-
-    ArgumentCaptor<HttpGet> captor = ArgumentCaptor.forClass(HttpGet.class);
-
-    verify(httpClientFactory, times(1)).getHttpClient(true, false);
-    verify(httpClient, times(1)).execute(captor.capture());
-    verify(connectionManager, times(1)).shutdown();
-
-    assertEquals("https://localhost.jenkins/git/notifyCommit?" 
-        + "url=http%3A%2F%2Fsome.stash.com%2Fscm%2Ffoo%2Fbar.git",
-        captor.getValue().getURI().toString());
-  }
-
-  /**
-   * Validates that the correct path is taken when using SSL but ignoring cert
-   * validation.
-   * @throws Exception
-   */
-  @Test
-  public void shouldCallTheCorrectUrlWithSslAndIgnoreCerts() throws Exception {
-    when(settings.getString(Notifier.JENKINS_BASE))
-      .thenReturn(JENKINS_BASE_URL.replace("http", "https"));
-    when(settings.getBoolean(Notifier.IGNORE_CERTS, false)).thenReturn(true);
-
-    notifier.notify(repo);
-
-    ArgumentCaptor<HttpGet> captor = ArgumentCaptor.forClass(HttpGet.class);
-
-    verify(httpClientFactory, times(1)).getHttpClient(true, true);
-    verify(httpClient, times(1)).execute(captor.capture());
-    verify(connectionManager, times(1)).shutdown();
-
-    assertEquals("https://localhost.jenkins/git/notifyCommit?"
-        + "url=http%3A%2F%2Fsome.stash.com%2Fscm%2Ffoo%2Fbar.git",
-        captor.getValue().getURI().toString());
+    response = "Scheduled build 123";
+    NotificationResult result = notifier.notify(repo).get(10, TimeUnit.SECONDS);
+    assertEquals(true, result.isSuccessful());
+    assertEquals("Jenkins response: " + response, result.getMessage());
   }
 
   /**
@@ -182,19 +135,13 @@ public class NotifierTest {
   public void shouldCallTheCorrectUrlWithTrailingSlashOnJenkinsBaseUrl() 
       throws Exception {
     when(settings.getString(Notifier.JENKINS_BASE))
-      .thenReturn(JENKINS_BASE_URL.concat("/"));
+      .thenReturn(outgoingUrl.concat("/"));
 
-    notifier.notify(repo);
+    notifier.notify(repo).get(10, TimeUnit.SECONDS);
 
-    ArgumentCaptor<HttpGet> captor = ArgumentCaptor.forClass(HttpGet.class);
-
-    verify(httpClientFactory, times(1)).getHttpClient(false, false);
-    verify(httpClient, times(1)).execute(captor.capture());
-    verify(connectionManager, times(1)).shutdown();
-
-    assertEquals("http://localhost.jenkins/git/notifyCommit?"
+    assertEquals("/git/notifyCommit?"
         + "url=http%3A%2F%2Fsome.stash.com%2Fscm%2Ffoo%2Fbar.git",
-        captor.getValue().getURI().toString());
+        url);
   }
     
 }

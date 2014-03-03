@@ -55,11 +55,6 @@
             <scope>provided</scope>
         </dependency>
         <dependency>
-            <groupId>com.atlassian.stash</groupId>
-            <artifactId>stash-page-objects</artifactId>
-            <scope>provided</scope>
-        </dependency>
-        <dependency>
             <groupId>com.atlassian.plugins.rest</groupId>
             <artifactId>atlassian-rest-common</artifactId>
             <scope>provided</scope>
@@ -133,6 +128,12 @@
         <dependency>
             <groupId>org.apache.httpcomponents</groupId>
             <artifactId>httpclient</artifactId>
+            <version>4.3.1</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.httpcomponents</groupId>
+            <artifactId>httpasyncclient</artifactId>
+            <version>4.0.1</version>
         </dependency>
     </dependencies>
     <build>

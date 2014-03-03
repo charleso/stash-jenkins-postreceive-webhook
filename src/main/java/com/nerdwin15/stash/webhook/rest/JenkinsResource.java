@@ -2,6 +2,7 @@ package com.nerdwin15.stash.webhook.rest;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 import javax.ws.rs.Consumes;
 import javax.ws.rs.FormParam;
@@ -89,7 +90,7 @@ public class JenkinsResource extends RestResource {
   public Map<String, Object> test(@Context Repository repository,
         @FormParam(Notifier.JENKINS_BASE) String jenkinsBase,
         @FormParam(Notifier.CLONE_URL) String cloneUrl,
-        @FormParam(Notifier.IGNORE_CERTS) boolean ignoreCerts) {
+        @FormParam(Notifier.IGNORE_CERTS) boolean ignoreCerts) throws Exception {
     
     if (jenkinsBase == null || cloneUrl == null) {
       Map<String, Object> map = new HashMap<String, Object>();
@@ -102,8 +103,8 @@ public class JenkinsResource extends RestResource {
     log.debug("Triggering jenkins notification for repository {}/{}", 
         repository.getProject().getKey(), repository.getSlug());
 
-    NotificationResult result = notifier.notify(repository, jenkinsBase, 
-        ignoreCerts, cloneUrl);
+    NotificationResult result = notifier.notify(repository, jenkinsBase,
+        ignoreCerts, cloneUrl).get(60, TimeUnit.SECONDS);
     log.debug("Got response from jenkins: {}", result);
 
     // Shouldn't have to do this but the result isn't being marshalled correctly
@@ -123,7 +124,7 @@ public class JenkinsResource extends RestResource {
   @Path(value = "triggerJenkins")
   public Response trigger(@Context Repository repository) {
     try {
-      NotificationResult result = notifier.notify(repository);
+      NotificationResult result = notifier.notify(repository).get(60, TimeUnit.SECONDS);
       if (result.isSuccessful())
         return Response.ok().build();
       return Response.noContent().build();
